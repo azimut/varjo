@@ -590,56 +590,77 @@
            (implicit-uniforms nil))
 
       (loop :for uniform :in uniforms
-         :for name = (name uniform)
-         :for type-obj = (v-type-of uniform)
-         :for qualifiers = (qualifiers type-obj)
-         :for glsl-name = (glsl-name uniform)
-         :do
-         (let ((string-name (or glsl-name (safe-glsl-name-string name)))
-               (layout (find-if #'block-memory-layout-qualfier-p qualifiers)))
-           (push (make-instance
-                  'uniform-variable
-                  :name name
-                  :glsl-name string-name
-                  :type type-obj
-                  :glsl-decl (cond
-                               ((find :ubo qualifiers :test #'qualifier=)
-                                (assert (not (qualifier= layout :std-430)))
-                                (write-ubo-block (parse-qualifier :uniform)
-                                                 string-name
-                                                 (v-slots type-obj)
-                                                 layout))
-                               ((find :ssbo qualifiers :test #'qualifier=)
-                                (write-ssbo-block (parse-qualifier :buffer)
-                                                  string-name
-                                                  (v-slots type-obj)
-                                                  layout))
-                               ((ephemeral-p type-obj) nil)
-                               (t (gen-uniform-decl-string string-name type-obj
-                                                           qualifiers))))
-                 final-strings)))
+            :for name = (name uniform)
+            :for type-obj = (v-type-of uniform)
+            :for qualifiers = (qualifiers type-obj)
+            :for glsl-name = (glsl-name uniform)
+            :do
+               (let ((string-name (or glsl-name (safe-glsl-name-string name)))
+                     (layout (find-if #'block-memory-layout-qualfier-p qualifiers)))
+                 (push (make-instance
+                        'uniform-variable
+                        :name name
+                        :glsl-name string-name
+                        :type type-obj
+                        :glsl-decl (cond
+                                     ((find :ubo qualifiers :test #'qualifier=)
+                                      (assert (not (qualifier= layout :std-430)))
+                                      (write-ubo-block (parse-qualifier :uniform)
+                                                       string-name
+                                                       (v-slots type-obj)
+                                                       layout))
+                                     ((find :ssbo qualifiers :test #'qualifier=)
+                                      (write-ssbo-block (parse-qualifier :buffer)
+                                                        string-name
+                                                        (v-slots type-obj)
+                                                        layout))
+                                     ;;
+                                     ((v-typep type-obj 'v-image-2d)
+                                      #+nil
+                                      (format nil "layout(RGBA8) uniform image2D ~a;"
+                                              string-name)
+                                      (format nil "layout(RGBA32F) uniform image2D ~a;"
+                                              string-name))
+                                     ;;
+                                     ((v-typep type-obj 'v-image-3d)
+                                      ;; to be read on a vertex shader
+                                      ;;(format nil "layout(RGBA8) uniform image3D ~a;" string-name)
+                                      (format nil "layout(RGBA16f) uniform image3D ~a;" string-name)
+                                      )
+                                     ((v-typep type-obj 'v-uimage-2d)
+                                      ;; to be atomically written on a fragment shader
+                                      (format nil "layout(r32ui) uniform uimage2D ~a;"
+                                              string-name))
+                                     ((v-typep type-obj 'v-uimage-3d)
+                                      ;; to be atomically written on a fragment shader
+                                      (format nil "layout(r32ui) uniform uimage3D ~a;"
+                                              string-name))
+                                     ((ephemeral-p type-obj) nil)
+                                     (t (gen-uniform-decl-string string-name type-obj
+                                                                 qualifiers))))
+                       final-strings)))
 
       (loop :for s :in (stemcells post-proc-obj) :do
-         (with-slots (name string-name type cpu-side-transform) s
-           (when (eq type :|unknown-type|)
-             (error 'symbol-unidentified :sym name))
-           (let ((type-obj (type-spec->type type)))
-             (push (make-instance
-                    'implicit-uniform-variable
-                    :name name
-                    :glsl-name string-name
-                    :type type-obj
-                    :cpu-side-transform cpu-side-transform
-                    :glsl-decl (unless (ephemeral-p type-obj)
-                                 (gen-uniform-decl-string
-                                  (or string-name (error "stem cell without glsl-name"))
-                                  type-obj
-                                  nil)))
-                   implicit-uniforms)
+        (with-slots (name string-name type cpu-side-transform) s
+          (when (eq type :|unknown-type|)
+            (error 'symbol-unidentified :sym name))
+          (let ((type-obj (type-spec->type type)))
+            (push (make-instance
+                   'implicit-uniform-variable
+                   :name name
+                   :glsl-name string-name
+                   :type type-obj
+                   :cpu-side-transform cpu-side-transform
+                   :glsl-decl (unless (ephemeral-p type-obj)
+                                (gen-uniform-decl-string
+                                 (or string-name (error "stem cell without glsl-name"))
+                                 type-obj
+                                 nil)))
+                  implicit-uniforms)
 
-             (when (and (v-typep type-obj 'v-user-struct)
-                        (not (find type-obj structs :test #'v-type-eq)))
-               (push type-obj structs)))))
+            (when (and (v-typep type-obj 'v-user-struct)
+                       (not (find type-obj structs :test #'v-type-eq)))
+              (push type-obj structs)))))
       ;;
       (setf (used-user-structs post-proc-obj) structs)
       (setf (uniforms post-proc-obj) final-strings)
